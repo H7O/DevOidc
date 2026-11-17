@@ -44,6 +44,10 @@ shows the same in a browser.
 Trust it once with `dotnet dev-certs https --trust`: the browser and the API both have to accept it.
 It lasts a year.
 
+DevOidc has been tested on Windows only. On Linux and macOS, trusting the development certificate
+works differently (see Microsoft's documentation of `dotnet dev-certs`). The other way is to serve
+a certificate the machine already trusts, with `--cert-pem` and `--key-pem`.
+
 ## A project's configuration file
 
 Each project that tests against DevOidc keeps its own file, in its own repository:
@@ -167,6 +171,45 @@ audience the client id. Keep every validation on (issuer, audience, lifetime, si
 provider is no reason to check less. **Load this provider on a developer's machine only.** Since
 the key is made per machine and fetched from `localhost`, a token from one developer's DevOidc is
 not accepted anywhere else.
+
+### An API built with DBToRestAPI
+
+[DBToRestAPI](https://github.com/H7O/DBToRestAPI) turns SQL queries into REST endpoints, and reads
+its sign-in providers from configuration files. Give DevOidc a provider file of its own, such as
+`config/dev_oidc.xml`:
+
+```xml
+<settings>
+  <authorize>
+    <providers>
+      <dev_oidc>
+        <authority>https://localhost:5443</authority>
+        <issuer>https://localhost:5443</issuer>
+        <audience>7f1c2a9e-0000-4000-8000-000000000001</audience>
+        <validate_issuer>true</validate_issuer>
+        <validate_audience>true</validate_audience>
+        <validate_lifetime>true</validate_lifetime>
+      </dev_oidc>
+    </providers>
+  </authorize>
+</settings>
+```
+
+List that file in the `settings.xml` of a developer's machine, and of no other environment, as
+`<path>config/dev_oidc.xml</path>` under `<additional_configurations>`. The engine reads a newly
+listed file when it starts. Endpoints then name no provider:
+
+```xml
+<authorize>
+  <provider>*</provider>
+</authorize>
+```
+
+`*` accepts any provider the engine has loaded, and the engine picks one by the token's issuer. A
+developer's machine loads the real provider and DevOidc, so tokens from both work side by side. A
+real environment loads the real provider only: a DevOidc token matches no provider there and gets
+`401`. The endpoint files stay the same on every environment. In SQL, `{auth{auth_provider}}` is
+the provider that signed the caller in, `dev_oidc` here.
 
 ## Checking it
 

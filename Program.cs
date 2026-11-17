@@ -28,7 +28,9 @@ try
         switch (name)
         {
             case "--config": configPaths.Add(Path.GetFullPath(Value())); break;
-            case "--port": port = int.Parse(Value()); break;
+            case "--port":
+                if (!int.TryParse(Value(), out port) || port is < 1 or > 65535) throw new ArgumentException("--port must be a number from 1 to 65535.");
+                break;
             case "--cert-pem": certPem = Path.GetFullPath(Value()); break;
             case "--key-pem": keyPem = Path.GetFullPath(Value()); break;
             default: throw new ArgumentException($"Unknown argument {name}.");
@@ -37,7 +39,7 @@ try
     if (configPaths.Count == 0) throw new ArgumentException("No --config file was given.");
     if ((certPem is null) != (keyPem is null)) throw new ArgumentException("--cert-pem and --key-pem go together.");
 }
-catch (Exception e) when (e is ArgumentException or FormatException)
+catch (ArgumentException e)
 {
     Console.Error.WriteLine(e.Message);
     Console.Error.WriteLine("Usage: DevOidc --config <file.json> [--config <another.json>] [--port 5443] [--cert-pem <file> --key-pem <file>]");
@@ -55,6 +57,24 @@ catch (Exception e)
     Console.Error.WriteLine($"The configuration could not be read: {e.Message}");
     return 2;
 }
+
+// The certificate of --cert-pem is read here, before the web host exists, so that a file that is
+// missing, or is not a certificate with its key, is one line on the console.
+X509Certificate2? certificate = null;
+if (certPem is not null)
+{
+    try
+    {
+        // Windows cannot serve TLS from a key that only lives in memory, hence the round trip.
+        using var pem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
+        certificate = X509CertificateLoader.LoadPkcs12(pem.Export(X509ContentType.Pkcs12), null);
+    }
+    catch (Exception e) when (e is IOException or UnauthorizedAccessException or CryptographicException or ArgumentException)
+    {
+        Console.Error.WriteLine($"The certificate could not be read: {e.Message}");
+        return 2;
+    }
+}
 var signer = Signer.LoadOrCreate();
 
 // What has been handed out. All of it lives in memory: a restart signs everyone out.
@@ -67,18 +87,13 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = []
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
 builder.Logging.SetMinimumLevel(LogLevel.Warning);
+// A start that fails is reported once, at the end of this file. The host's own report of the same
+// failure is a stack trace, so it is turned off.
+builder.Logging.AddFilter("Microsoft.Extensions.Hosting.Internal.Host", LogLevel.None);
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(port, listen =>
 {
-    if (certPem is null)
-    {
-        listen.UseHttps(); // the ASP.NET Core development certificate (dotnet dev-certs https --trust)
-    }
-    else
-    {
-        // Windows cannot serve TLS from a key that only lives in memory, hence the round trip.
-        using var pem = X509Certificate2.CreateFromPemFile(certPem, keyPem);
-        listen.UseHttps(X509CertificateLoader.LoadPkcs12(pem.Export(X509ContentType.Pkcs12), null));
-    }
+    // Without --cert-pem: the ASP.NET Core development certificate (dotnet dev-certs https --trust).
+    if (certificate is null) listen.UseHttps(); else listen.UseHttps(certificate);
 }));
 var app = builder.Build();
 
@@ -349,6 +364,21 @@ app.MapMethods("/logout", ["GET", "POST"], async (HttpContext ctx) =>
 app.MapGet("/", () => Page.Home(issuer, registry.Current, registry.Paths));
 
 // ---- start -------------------------------------------------------------------------------------
+try
+{
+    app.Start();
+}
+catch (IOException e)
+{
+    // Kestrel could not listen on the port: another program holds it (another DevOidc, most
+    // often) or the system does not allow it. The system's own words are the innermost message.
+    var reason = e.InnerException is AggregateException both ? both.InnerExceptions[0] : e.InnerException ?? e;
+    Console.Error.WriteLine($"DevOidc cannot listen on port {port}: {reason.Message}");
+    Console.Error.WriteLine("If another DevOidc is running, use that one or stop it. Otherwise choose another port with --port: the issuer changes with it.");
+    return 1;
+}
+
+// Printed once DevOidc is listening, so these lines mean it is up.
 var line = new string('=', 78);
 Console.WriteLine(line);
 Console.WriteLine(" DevOidc: a sign-in provider for LOCAL TESTING ONLY.");
@@ -362,15 +392,7 @@ Console.WriteLine($" Users     {registry.Current.Users.Count} listed on the sign
 Console.WriteLine($" Key       {signer.Path}");
 Console.WriteLine(line);
 
-try
-{
-    app.Run();
-}
-catch (IOException e) when (e.InnerException is System.Net.Sockets.SocketException)
-{
-    Console.Error.WriteLine($"Port {port} is taken: {e.InnerException.Message}");
-    return 1;
-}
+app.WaitForShutdown();
 return 0;
 
 // ---- helpers -----------------------------------------------------------------------------------
