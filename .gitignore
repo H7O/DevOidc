@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+*.user
+.vs/
+
+# Working files that never belong in the repo: notes, throw-away tests, captured tokens.
+/scratchpad/
+
+# A signing key or a certificate must never be committed. DevOidc keeps its own key outside the
+# repo (%LOCALAPPDATA%\DevOidc), so these lines only guard against a stray copy.
+*.pem
+*.pfx
+*.key
+
+__pycache__/
+*.pyc

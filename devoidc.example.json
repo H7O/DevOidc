@@ -1,0 +1,16 @@
+{
+  "clients": [
+    {
+      "client_id": "7f1c2a9e-0000-4000-8000-000000000001",
+      "name": "My application (local)",
+      "redirect_uris": ["https://myapp.test/auth/callback"],
+      "post_logout_redirect_uris": ["https://myapp.test/login"],
+      "access_token": true,
+      "token_lifetime_seconds": 3600
+    }
+  ],
+  "users": [
+    { "email": "admin@example.test", "name": "Ada Admin", "note": "administrator" },
+    { "email": "reader@example.test", "name": "Rob Reader", "given_name": "Rob", "family_name": "Reader" }
+  ]
+}

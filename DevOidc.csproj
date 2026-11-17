@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>DevOidc</RootNamespace>
+    <Version>1.0.0</Version>
+    <!-- One file, no packages: the whole provider is Program.cs. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- tests\ holds the Python test script; scratchpad\ is ignored by git and may hold anything. -->
+    <Compile Remove="tests\**;scratchpad\**" />
+    <Content Remove="**\*.json" />
+    <None Include="devoidc.example.json" />
+  </ItemGroup>
+
+</Project>
