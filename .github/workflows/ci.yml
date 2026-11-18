@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Builds DevOidc, starts it with a certificate made for the run, and runs the 41 checks against it.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: The package the checks need
+        run: python3 -c "import cryptography" || sudo apt-get install -y python3-cryptography
+
+      - name: Build, start, check
+        run: bash tests/run_checks.sh

@@ -1,20 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>DevOidc</RootNamespace>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <!-- One file, no packages: the whole provider is Program.cs. -->
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- A published build holds the program, the README, the licence and the example configuration,
+         and nothing else: no web.config (DevOidc never runs behind IIS), no list of static files
+         (it has none), and the debug symbols inside the program instead of beside it. -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- tests\ holds the Python test script; scratchpad\ is ignored by git and may hold anything. -->
     <Compile Remove="tests\**;scratchpad\**" />
     <Content Remove="**\*.json" />
-    <None Include="devoidc.example.json" />
+    <None Include="devoidc.example.json;README.md;LICENSE" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

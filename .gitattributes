@@ -1,2 +1,5 @@
 # Text files are stored with LF in the repository on every machine, whatever its git settings.
 * text=auto
+
+# A shell script keeps LF in the working folder too: bash on Linux refuses CRLF.
+*.sh text eol=lf

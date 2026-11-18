@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # The source, checked as on every push, and the tag compared with the version the program prints.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: The tag is the project's version
+        run: |
+          version="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' DevOidc.csproj)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "The tag is $GITHUB_REF_NAME, and DevOidc.csproj says $version."
+            exit 1
+          fi
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: The package the checks need
+        run: python3 -c "import cryptography" || sudo apt-get install -y python3-cryptography
+
+      - name: Build, start, check
+        run: bash tests/run_checks.sh
+
+  # One archive per system, each with the .NET runtime inside: the program is a single file, beside
+  # the README, the licence and the example configuration. All are built on Linux. The Linux x64
+  # program is started and checked here before anything is released; the others are not run.
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            artifact: DevOidc-win-x64
+          - rid: win-arm64
+            artifact: DevOidc-win-arm64
+          - rid: linux-x64
+            artifact: DevOidc-linux-x64
+          - rid: linux-arm64
+            artifact: DevOidc-linux-arm64
+          - rid: osx-x64
+            artifact: DevOidc-osx-x64
+          - rid: osx-arm64
+            artifact: DevOidc-osx-arm64
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Publish
+        run: >
+          dotnet publish DevOidc.csproj
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          --output ./publish/${{ matrix.artifact }}
+
+      - name: Check the published program (Linux x64)
+        if: matrix.rid == 'linux-x64'
+        run: |
+          python3 -c "import cryptography" || sudo apt-get install -y python3-cryptography
+          bash tests/run_checks.sh ./publish/${{ matrix.artifact }}/DevOidc
+
+      - name: Package (zip, for Windows)
+        if: startsWith(matrix.rid, 'win')
+        run: cd ./publish && zip -r ../${{ matrix.artifact }}.zip ${{ matrix.artifact }}
+
+      - name: Package (tar.gz, for Linux and macOS)
+        if: "!startsWith(matrix.rid, 'win')"
+        run: tar -czf ${{ matrix.artifact }}.tar.gz -C ./publish ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.*
+
+  # For a computer that already has the ASP.NET Core 11 runtime: DevOidc.dll, started with
+  # "dotnet DevOidc.dll" on any system.
+  publish-portable:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+
+      - name: Publish (needs the runtime on the computer)
+        run: >
+          dotnet publish DevOidc.csproj
+          --configuration Release
+          -p:UseAppHost=false
+          --output ./publish/DevOidc-portable
+
+      - name: Check the published build
+        run: |
+          python3 -c "import cryptography" || sudo apt-get install -y python3-cryptography
+          bash tests/run_checks.sh dotnet ./publish/DevOidc-portable/DevOidc.dll
+
+      - name: Package
+        run: |
+          tar -czf DevOidc-portable.tar.gz -C ./publish DevOidc-portable
+          cd ./publish && zip -r ../DevOidc-portable.zip DevOidc-portable
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: DevOidc-portable
+          path: DevOidc-portable.*
+
+  release:
+    needs: [publish, publish-portable]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: artifacts/*

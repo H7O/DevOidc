@@ -8,7 +8,7 @@ single-page application without going through the real identity provider.
 > any user. It listens on this computer's loopback addresses only, refuses callers from other
 > machines, and has no deployment script on purpose.
 
-It is one file, `Program.cs`, on .NET 10, with no packages.
+It is one file, `Program.cs`, on .NET 11, with no packages.
 
 ## Why
 
@@ -25,11 +25,35 @@ it makes "what does this page look like for a user with that role" a five-minute
 The API under test keeps validating tokens properly: signature against the published key, issuer,
 audience, lifetime. Only the provider is a stand-in.
 
+## Get it
+
+**Download it.** Each [release](https://github.com/H7O/DevOidc/releases/latest) has an archive per
+system with the .NET runtime inside, so there is nothing to install and nothing to build:
+
+| Computer | Archive |
+|---|---|
+| Windows | `DevOidc-win-x64.zip`, or `DevOidc-win-arm64.zip` on Arm |
+| Linux | `DevOidc-linux-x64.tar.gz`, or `DevOidc-linux-arm64.tar.gz` on Arm |
+| macOS | `DevOidc-osx-arm64.tar.gz` on Apple silicon, `DevOidc-osx-x64.tar.gz` on Intel |
+| Any, with the ASP.NET Core 11 runtime installed | `DevOidc-portable.zip` or `.tar.gz`, a few hundred kilobytes |
+
+An archive holds the program as a single file, this README, the licence and `devoidc.example.json`.
+
+**Or build it** from a clone of this repository, with the .NET 11 SDK. Nothing else is needed.
+
 ## Run it
 
 ```
-dotnet run -c Release -- --config path\to\my-project.json
+DevOidc --config path\to\my-project.json
 ```
+
+That is the downloaded program on Windows. The same arguments follow each of the other forms:
+
+| You have | Start it with |
+|---|---|
+| The program on Linux or macOS | `./DevOidc` |
+| The portable archive | `dotnet DevOidc.dll` |
+| A clone | `dotnet run -c Release --` |
 
 | Argument | Meaning |
 |---|---|
@@ -40,13 +64,21 @@ dotnet run -c Release -- --config path\to\my-project.json
 On start it prints its issuer, the clients it knows and where its signing key is. `https://localhost:5443/`
 shows the same in a browser.
 
-**The certificate.** Without `--cert-pem`, DevOidc serves the ASP.NET Core development certificate.
-Trust it once with `dotnet dev-certs https --trust`: the browser and the API both have to accept it.
-It lasts a year.
+**The certificate.** DevOidc answers over HTTPS only, so it needs a certificate that this computer
+trusts: the browser and the API both have to accept it. There are two ways to give it one.
 
-DevOidc has been tested on Windows only. On Linux and macOS, trusting the development certificate
-works differently (see Microsoft's documentation of `dotnet dev-certs`). The other way is to serve
-a certificate the machine already trusts, with `--cert-pem` and `--key-pem`.
+- **With the .NET SDK on the computer:** run `dotnet dev-certs https --trust` once. Without
+  `--cert-pem`, DevOidc serves that ASP.NET Core development certificate. It lasts a year. On Linux
+  and macOS, trusting it works differently (see Microsoft's documentation of `dotnet dev-certs`).
+- **Without the SDK,** as on a computer that only has the downloaded program: pass a certificate
+  for `localhost` and its key with `--cert-pem` and `--key-pem`. Any certificate works, as long as
+  this computer trusts it. How a certificate becomes trusted depends on the system and the browser.
+
+Started with neither, DevOidc says that it has no certificate, and stops.
+
+**Where it has run.** On Windows and on Linux, both x64. The [checks](#checking-it) run on Linux for
+every change, and against the Linux program of every release before it is published. The archives
+for macOS and for Arm are built the same way and have not been run.
 
 ## A project's configuration file
 
@@ -114,8 +146,9 @@ The answer's `id_token` (and `access_token`, the same token) is what goes in
 ## What a token holds
 
 RS256, signed with a key made on the first run and kept in the user's local application-data
-folder (`%LOCALAPPDATA%\DevOidc\signing-key.pem` on Windows; the path is printed at start). That
-is outside every repository, so the key survives rebuilds and cannot be committed. Claims:
+folder: `%LOCALAPPDATA%\DevOidc\signing-key.pem` on Windows, `~/.local/share/DevOidc/signing-key.pem`
+on Linux, where only that user may read it. The path is printed at start. That is outside every
+repository, so the key survives rebuilds and cannot be committed. Claims:
 
 `iss` (the issuer, no slash at the end), `aud` (the client id), `sub` (derived from the e-mail: the
 same person always gets the same value), `email`, `emails` (a list of one, as Azure AD B2C sends),
@@ -221,6 +254,19 @@ uv run --with cryptography --with truststore tests/test_devoidc.py --config path
 
 41 checks from the outside: discovery, the key and the signature, the script grant and its
 switches, the whole sign-in through the page with PKCE, renewal, sign-out, the refusals, CORS.
+
+That command judges DevOidc's certificate as the system does, so it suits a computer that trusts
+the development certificate. On Linux, where usually nothing trusts one, a script does it all:
+
+```
+tests/run_checks.sh              # the source in this clone
+tests/run_checks.sh ./DevOidc    # a downloaded program
+```
+
+It makes a certificate for the run, starts DevOidc with it, runs the 41 checks and stops DevOidc.
+The checks trust that certificate through the environment variable `SSL_CERT_FILE` and nothing is
+added to the computer's trusted certificates. It needs `openssl`, and `uv` or a `python3` that has
+the `cryptography` package.
 
 ## The safeguards, in one place
 

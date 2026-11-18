@@ -75,7 +75,16 @@ if (certPem is not null)
         return 2;
     }
 }
-var signer = Signer.LoadOrCreate();
+Signer signer;
+try
+{
+    signer = Signer.LoadOrCreate();
+}
+catch (Exception e) when (e is IOException or UnauthorizedAccessException or CryptographicException or ArgumentException or InvalidOperationException)
+{
+    Console.Error.WriteLine($"The signing key could not be read or made: {e.Message}");
+    return 2;
+}
 
 // What has been handed out. All of it lives in memory: a restart signs everyone out.
 var codes = new ConcurrentDictionary<string, Grant>();
@@ -90,12 +99,26 @@ builder.Logging.SetMinimumLevel(LogLevel.Warning);
 // A start that fails is reported once, at the end of this file. The host's own report of the same
 // failure is a stack trace, so it is turned off.
 builder.Logging.AddFilter("Microsoft.Extensions.Hosting.Internal.Host", LogLevel.None);
+var noDevelopmentCertificate = false;
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.ListenLocalhost(port, listen =>
 {
+    if (certificate is not null) { listen.UseHttps(certificate); return; }
     // Without --cert-pem: the ASP.NET Core development certificate (dotnet dev-certs https --trust).
-    if (certificate is null) listen.UseHttps(); else listen.UseHttps(certificate);
+    // A computer that never had the .NET SDK has none, and Kestrel says so with an exception.
+    try { listen.UseHttps(); }
+    catch (InvalidOperationException) { noDevelopmentCertificate = true; throw; }
 }));
-var app = builder.Build();
+WebApplication app;
+try
+{
+    app = builder.Build();
+}
+catch (InvalidOperationException) when (noDevelopmentCertificate)
+{
+    Console.Error.WriteLine("DevOidc has no certificate to serve HTTPS with: this computer has no ASP.NET Core development certificate.");
+    Console.Error.WriteLine("With the .NET SDK, make and trust one: dotnet dev-certs https --trust. Without it, serve a certificate for localhost that this computer trusts: --cert-pem <file> --key-pem <file>.");
+    return 2;
+}
 
 app.Use(async (ctx, next) =>
 {
@@ -381,7 +404,7 @@ catch (IOException e)
 // Printed once DevOidc is listening, so these lines mean it is up.
 var line = new string('=', 78);
 Console.WriteLine(line);
-Console.WriteLine(" DevOidc: a sign-in provider for LOCAL TESTING ONLY.");
+Console.WriteLine($" DevOidc {typeof(Signer).Assembly.GetName().Version?.ToString(3)}: a sign-in provider for LOCAL TESTING ONLY.");
 Console.WriteLine(" It asks no password: whoever reaches it signs in as anyone. It answers this");
 Console.WriteLine(" computer only. Never deploy it, and never let a real environment trust it.");
 Console.WriteLine(line);
@@ -548,7 +571,12 @@ sealed class Signer
 
     public static Signer LoadOrCreate()
     {
-        var folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DevOidc");
+        // DoNotVerify: without it, a folder that does not exist yet comes back as an empty text (on
+        // Linux, a home without .local/share), and the key would land in the current folder, which
+        // may be a repository.
+        var data = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify);
+        if (string.IsNullOrEmpty(data)) throw new InvalidOperationException("this user has no application-data folder (is HOME set?).");
+        var folder = System.IO.Path.Combine(data, "DevOidc");
         var path = System.IO.Path.Combine(folder, "signing-key.pem");
         var rsa = RSA.Create(2048);
         if (File.Exists(path))
@@ -558,7 +586,11 @@ sealed class Signer
         else
         {
             Directory.CreateDirectory(folder);
-            File.WriteAllText(path, rsa.ExportRSAPrivateKeyPem());
+            var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write };
+            // Elsewhere than on Windows, a new file is readable by every user unless told otherwise.
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using var file = new StreamWriter(path, Encoding.ASCII, options);
+            file.Write(rsa.ExportRSAPrivateKeyPem());
         }
         return new Signer(rsa, path);
     }

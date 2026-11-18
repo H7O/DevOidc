@@ -10,23 +10,34 @@ Nothing is written anywhere. Exit code 0 = every check passed.
 truststore makes Python judge the certificate as Windows does, which is how the API and the browser
 judge it: DevOidc serves the ASP.NET Core development certificate, trusted in the user's Windows
 store, and Python's own list of authorities does not know it.
+
+With the environment variable SSL_CERT_FILE set, the checks trust the certificate in that file and
+no other, and truststore is not needed. tests/run_checks.sh uses that: it makes a certificate, starts
+DevOidc with it and runs these checks, on a machine where no development certificate is trusted.
 """
 import argparse
 import base64
 import hashlib
 import json
+import os
 import secrets
+import ssl
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-import truststore
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
-truststore.inject_into_ssl()
+if os.environ.get("SSL_CERT_FILE"):
+    https = urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"]))
+else:
+    import truststore
+
+    truststore.inject_into_ssl()
+    https = urllib.request.HTTPSHandler()
 
 results = []
 
@@ -41,7 +52,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-opener = urllib.request.build_opener(NoRedirect)
+opener = urllib.request.build_opener(NoRedirect, https)
 
 
 def call(method, url, form=None, headers=None):
