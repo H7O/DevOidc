@@ -47,9 +47,10 @@ for _ in $(seq 1 240); do
 done
 if ! grep -q '^ Key ' "$work/devoidc.log"; then echo "DevOidc was not up after a minute:"; cat "$work/devoidc.log"; exit 1; fi
 
-export SSL_CERT_FILE="$work/cert.pem"
+# --cert, not the environment variable SSL_CERT_FILE: uv obeys that variable for its own downloads,
+# and could then no longer fetch the package the checks need.
 if command -v uv >/dev/null 2>&1; then
-  uv run --with cryptography --with truststore "$here/test_devoidc.py" --config "$config" --issuer "https://localhost:$port"
+  uv run --with cryptography "$here/test_devoidc.py" --config "$config" --issuer "https://localhost:$port" --cert "$work/cert.pem"
 else
-  python3 "$here/test_devoidc.py" --config "$config" --issuer "https://localhost:$port"
+  python3 "$here/test_devoidc.py" --config "$config" --issuer "https://localhost:$port" --cert "$work/cert.pem"
 fi

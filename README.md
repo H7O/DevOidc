@@ -264,9 +264,9 @@ tests/run_checks.sh ./DevOidc    # a downloaded program
 ```
 
 It makes a certificate for the run, starts DevOidc with it, runs the 41 checks and stops DevOidc.
-The checks trust that certificate through the environment variable `SSL_CERT_FILE` and nothing is
-added to the computer's trusted certificates. It needs `openssl`, and `uv` or a `python3` that has
-the `cryptography` package.
+The checks are told to trust that certificate and no other (`--cert`), and nothing is added to the
+computer's trusted certificates. It needs `openssl`, and `uv` or a `python3` that has the
+`cryptography` package.
 
 ## The safeguards, in one place
 

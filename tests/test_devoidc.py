@@ -11,15 +11,14 @@ truststore makes Python judge the certificate as Windows does, which is how the 
 judge it: DevOidc serves the ASP.NET Core development certificate, trusted in the user's Windows
 store, and Python's own list of authorities does not know it.
 
-With the environment variable SSL_CERT_FILE set, the checks trust the certificate in that file and
-no other, and truststore is not needed. tests/run_checks.sh uses that: it makes a certificate, starts
-DevOidc with it and runs these checks, on a machine where no development certificate is trusted.
+With --cert <file>, the checks trust the certificate in that file and no other, and truststore is
+not needed. tests/run_checks.sh uses that: it makes a certificate, starts DevOidc with it and runs
+these checks, on a machine where no development certificate is trusted.
 """
 import argparse
 import base64
 import hashlib
 import json
-import os
 import secrets
 import ssl
 import sys
@@ -30,14 +29,6 @@ import urllib.request
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-
-if os.environ.get("SSL_CERT_FILE"):
-    https = urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"]))
-else:
-    import truststore
-
-    truststore.inject_into_ssl()
-    https = urllib.request.HTTPSHandler()
 
 results = []
 
@@ -52,7 +43,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-opener = urllib.request.build_opener(NoRedirect, https)
+opener = None  # made in main(), once the arguments say which certificate to trust
 
 
 def call(method, url, form=None, headers=None):
@@ -78,7 +69,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--issuer", default="https://localhost:5443")
     ap.add_argument("--config", required=True, help="one of the files DevOidc was started with")
+    ap.add_argument("--cert", help="trust the certificate in this file and no other; without it, the system decides")
     a = ap.parse_args()
+
+    global opener
+    if a.cert:
+        https = urllib.request.HTTPSHandler(context=ssl.create_default_context(cafile=a.cert))
+    else:
+        import truststore
+
+        truststore.inject_into_ssl()
+        https = urllib.request.HTTPSHandler()
+    opener = urllib.request.build_opener(NoRedirect, https)
     iss = a.issuer.rstrip("/")
     with open(a.config, encoding="utf-8") as f:
         cfg = json.load(f)
